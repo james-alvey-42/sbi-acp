@@ -42,7 +42,6 @@ from sbi.utils import (
     warn_if_zscoring_changes_data,
 )
 from sbi.utils.sbiutils import ImproperEmpirical, mask_sims_from_prior
-from sbi.utils.torchutils import assert_all_finite
 
 
 class PosteriorEstimator(NeuralInference, ABC):
@@ -228,6 +227,7 @@ class PosteriorEstimator(NeuralInference, ABC):
         retrain_from_scratch: bool = False,
         show_train_summary: bool = False,
         dataloader_kwargs: Optional[dict] = None,
+        model_info: Optional[dict] = None,
     ) -> ConditionalDensityEstimator:
         r"""Return density estimator that approximates the distribution $p(\theta|x)$.
 
@@ -338,6 +338,10 @@ class PosteriorEstimator(NeuralInference, ABC):
             del theta, x
 
         # Move entire net to device for training.
+        if model_info["epochs_trained"] > 0:
+            print("Loading model from file: ", model_info["state_dict_loc"] + str(model_info["epochs_trained"]) + ".pt")
+            self._neural_net.load_state_dict(torch.load(model_info["state_dict_loc"] + str(model_info["epochs_trained"]) + ".pt"))
+
         self._neural_net.to(self._device)
 
         if not resume_training:
@@ -377,6 +381,9 @@ class PosteriorEstimator(NeuralInference, ABC):
                         self._neural_net.parameters(), max_norm=clip_max_norm
                     )
                 self.optimizer.step()
+
+            print("Saving model to file: ", model_info["state_dict_loc"] + str(model_info["epochs_trained"] + 1) + ".pt")
+            torch.save(self._neural_net.state_dict(), model_info["state_dict_loc"] + str(model_info["epochs_trained"] + 1) + ".pt")
 
             self.epoch += 1
 
@@ -610,7 +617,6 @@ class PosteriorEstimator(NeuralInference, ABC):
             # Must be extended ones other Estimators are implemented. See #966,
             loss = -self._log_prob_proposal_posterior(theta, x, masks, proposal)
 
-        assert_all_finite(loss, "NPE loss")
         return calibration_kernel(x) * loss
 
     def _check_proposal(self, proposal):
